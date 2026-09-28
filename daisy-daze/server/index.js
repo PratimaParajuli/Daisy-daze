@@ -1,9 +1,11 @@
-// API startup, MongoDB connection/seeding, route mounting, and error responses.
+// API startup, MongoDB connection/seeding, route mounting, static site serving, and error responses.
 import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
 import mongoose from 'mongoose'
 import bcrypt from 'bcryptjs'
+import path from 'path'
+import { fileURLToPath } from 'url'
 import { products } from '../src/data/products.js'
 import User from './models/User.js'
 import Product from './models/Product.js'
@@ -13,13 +15,31 @@ import orderRoutes from './routes/orders.js'
 
 const app = express()
 const port = process.env.PORT || 4000
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+const distPath = path.resolve(__dirname, '../dist')
 
-app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:5173' }))
+const allowedOrigins = [process.env.CLIENT_URL, 'http://localhost:5173', 'http://127.0.0.1:5173'].filter(Boolean)
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true)
+    return callback(new Error('CORS policy blocked this request.'))
+  },
+  credentials: true,
+}))
 app.use(express.json({ limit: '100kb' }))
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected' }))
 app.use('/api/auth', authRoutes)
 app.use('/api/products', productRoutes)
 app.use('/api/orders', orderRoutes)
+
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(distPath))
+  app.get(/^(?!\/api).*/, (_req, res) => {
+    res.sendFile(path.join(distPath, 'index.html'))
+  })
+}
+
 app.use((error, _req, res, _next) => {
   console.error(error.message)
   if (error.code === 11000) return res.status(409).json({ message: 'That email is already registered.' })
